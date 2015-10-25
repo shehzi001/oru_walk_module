@@ -13,16 +13,16 @@
 //----------------------------------------
 // INCLUDES
 //----------------------------------------
-
+#include <map>
 #include <string>
 
-
+/*
 #include <qi/log.hpp>
 #include <alcore/alptr.h>
 #include <alcommon/alproxy.h>
 #include <alcommon/albroker.h>
 #include <alproxies/alpreferencesproxy.h>
-
+*/
 
 
 //----------------------------------------
@@ -30,7 +30,7 @@
 //----------------------------------------
 
 
-using namespace AL;
+//using namespace AL;
 using namespace std;
 
 
@@ -38,7 +38,8 @@ enum walkPatterns
 {
     WALK_PATTERN_STRAIGHT = 0,
     WALK_PATTERN_DIAGONAL = 1,
-    WALK_PATTERN_CIRCULAR = 2
+    WALK_PATTERN_CIRCULAR = 2,
+    WALK_PATTERN_BACK = 3
 };
 
 
@@ -103,7 +104,8 @@ enum parametersNames
 class walkParameters
 {
     public:
-        walkParameters(ALPtr<ALBroker>);
+        walkParameters();
+        void walkParametersInitialize();
         void readParameters();
         void writeParameters();
 
@@ -167,8 +169,10 @@ class walkParameters
         double bezier_inclination_2;
 
 
-        ALValue param_names;
-        ALPreferencesProxy pref_proxy;
+        //ALValue param_names;
+        //ALPreferencesProxy pref_proxy;
+        std::map<int, string> param_names;
+        
 };
 
 #endif  // WALK_PARAMETERS_H

@@ -5,6 +5,7 @@
 
 #include "walk_parameters.h"
 #include "smpc_solver.h"
+#include <iostream>
 
 
 
@@ -13,10 +14,15 @@
  *
  * @param[in] broker parent broker.
  */
-walkParameters::walkParameters(ALPtr<ALBroker> broker) :
-    pref_proxy(broker)
+//walkParameters::walkParameters(ALPtr<ALBroker> broker) :
+//    pref_proxy(broker)
+walkParameters::walkParameters()
 {
-// CoM position feedback
+}
+
+void walkParameters::walkParametersInitialize()
+{
+    // CoM position feedback
     /**
      * @ref AldNaoPaper "0.5 in the publication by Aldebaran-Robotics"
      */
@@ -58,8 +64,8 @@ walkParameters::walkParameters(ALPtr<ALBroker> broker) :
 
     ss_time_ms = 400;
     ds_time_ms = 40;
-    ds_number = 3;
-    step_pairs_number = 4;
+    ds_number = 7;
+    step_pairs_number = 8;
 
 
 // parameters of the steps
@@ -117,7 +123,8 @@ walkParameters::walkParameters(ALPtr<ALBroker> broker) :
 
 
 // list of parameters, that are stored in config file:
-    param_names.arraySetSize(NUM_PARAMETERS);
+
+    //param_names.arraySetSize(NUM_PARAMETERS);
 
     param_names[FEEDBACK_GAIN]            = "feedback_gain";
     param_names[FEEDBACK_THRESHOLD]       = "feedback_threshold";
@@ -161,7 +168,7 @@ walkParameters::walkParameters(ALPtr<ALBroker> broker) :
     param_names[DS_NUMBER]                = "ds_number";     
     param_names[STEP_PAIRS_NUMBER]        = "step_pairs_number";     
 
-    param_names[WALK_PATTERN]             = "walk_pattern";     
+    param_names[WALK_PATTERN]             = "walk_pattern";
 }
 
 
@@ -172,6 +179,7 @@ walkParameters::walkParameters(ALPtr<ALBroker> broker) :
  */
 void walkParameters::readParameters()
 {
+    /*
     ALValue preferences;
 
     try
@@ -248,6 +256,7 @@ void walkParameters::readParameters()
             if(preferences[i][0] == param_names[MPC_AS_USE_DOWNDATE]) { mpc_as_use_downdate = preferences[i][2]; }
         }
     }
+    */
 }
 
 
@@ -257,6 +266,7 @@ void walkParameters::readParameters()
  */
 void walkParameters::writeParameters()
 {
+    /*
     ALValue preferences;
 
     preferences.arraySetSize(NUM_PARAMETERS);
@@ -366,4 +376,5 @@ void walkParameters::writeParameters()
     {
         qiLogInfo ("module.oru_walk") << e.what();
     }
+    */
 }

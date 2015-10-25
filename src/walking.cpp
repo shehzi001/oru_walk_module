@@ -6,8 +6,8 @@
  */
 
 #include "oru_walk.h"
-#include "oruw_log.h"
-#include "oruw_timer.h"
+//#include "oruw_log.h"
+//#include "oruw_timer.h"
 
 
 /**
@@ -16,13 +16,7 @@
  */
 void oru_walk::walk()
 {
-    ORUW_LOG_OPEN;
-    wp.readParameters();
-
-
-    // initialize Nao model
-    readSensors(nao.state_sensor);
-
+    //ORUW_LOG_OPEN;
 
     // start walk control thread
     try
@@ -38,7 +32,7 @@ void oru_walk::walk()
         if (retval != 0)
         {
             // Assume that this error is not critical
-            ORUW_LOG_MESSAGE("Cannot change the priority of the walk control thread: %s\n", strerror(retval));
+            //ORUW_LOG_MESSAGE("Cannot change the priority of the walk control thread: %s\n", strerror(retval));
         }
 
         walk_control_thread.detach();
@@ -48,36 +42,30 @@ void oru_walk::walk()
         halt("Failed to spawn the walk control thread.\n", __FUNCTION__);
     }
 
-
     // register callback
     dcm_loop_counter = 0;
-    try
-    {
-        dcm_callback_connection =
-            getParentBroker()->getProxy("DCM")->getModule()->atPostProcess
-            (boost::bind(&oru_walk::dcmCallback, this));
-    }
-    catch (const ALError &e)
-    {
-        ORUW_LOG_MESSAGE("Callback registration failed: %s\n", e.what());
-        halt("Callback registration failed!", __FUNCTION__);
-    }
 }
-
-
 
 /**
  * @brief Update joint angles.
  */
 void oru_walk::readSensors(jointState& joint_state)
 {
-    vector<float> sensorValues;
+    vector<double> sensorValues;
 
-    access_sensor_values->GetValues (sensorValues);
+    robot_interface_->readJointPositions(joint_indices_, JOINTS_NUM, sensorValues);
+
     for (int i = 0; i < JOINTS_NUM; i++)
     {
         joint_state.q[i] = sensorValues[i];
+        if (i < LOWER_JOINTS_NUM) {
+            ref_joint_angles[i] = sensorValues[i];
+            //std::cout << i << ":" << ref_joint_angles[i] << " ";
+        }
     }
+
+    //std::cout << std::endl;
+
     /* Acc. to the documentation:
      * "LHipYawPitch and RHipYawPitch share the same motor so they move
      *  simultaneously and symmetrically. In case of conflicting orders, 
@@ -85,6 +73,8 @@ void oru_walk::readSensors(jointState& joint_state)
      * Make sure that these joint angles are equal:
      */
     joint_state.q[R_HIP_YAW_PITCH] = joint_state.q[L_HIP_YAW_PITCH];
+
+    //robot_interface_->getTorsoFeedback(torso_feedback_);
 }
 
 
@@ -92,20 +82,35 @@ void oru_walk::readSensors(jointState& joint_state)
 /**
  * @brief Wake up walk control thread periodically.
  */
+ /**
 void oru_walk::dcmCallback()
 {
+    // read from sensor and update joint values
     dcm_loop_counter++;
     if (dcm_loop_counter % (wp.control_sampling_time_ms / wp.dcm_sampling_time_ms) == 0)
     {
-        last_dcm_time_ms = *last_dcm_time_ms_ptr + wp.dcm_time_shift_ms;
-        readSensors (nao.state_sensor);
+        //printMessage ("dcm callback satisfied.");
+        //last_dcm_time_ms = *last_dcm_time_ms_ptr + wp.dcm_time_shift_ms;
 
+        //printMessage ("unlocking thread.");
         boost::mutex::scoped_lock lock(walk_control_mutex);
         walk_control_condition.notify_one();
         lock.unlock();
+        //printMessage ("thread unlocked.");
     }
 }
+*/
+bool oru_walk::dcmCallback()
+{
 
+    readSensors (nao.state_sensor);
+    //robot_interface_->getJointVelocity();
+    boost::mutex::scoped_lock lock(walk_control_mutex);
+    walk_control_condition.notify_one();
+    lock.unlock();
+
+    return dcm_loop_break;
+}
 
 
 /**
@@ -125,6 +130,14 @@ void oru_walk::correctNextSupportPosition(WMG &wmg)
  */
 void oru_walk::initSolver()
 {
+    /*
+    std::cout<< "initsolver.....feedback_gain:" << wp.feedback_gain << std::endl;
+    std::cout<< "initsolver.....feedback_threshold......................:" << wp.feedback_threshold << std::endl;
+    std::cout<< "initsolver.....mpc_solver_type....................:" << wp.mpc_solver_type << std::endl;
+    std::cout<< "initsolver......mpc_gain_position.....................:" << wp.mpc_gain_position << std::endl;
+    std::cout<< "initsolver....mpc_gain_acceleration.................:" << wp.mpc_gain_acceleration << std::endl;
+    std::cout<< "initsolver....mpc_as_max_activate..................:" << wp.mpc_as_max_activate << std::endl;
+    */
     if (solver != NULL)
     {
         delete solver;
@@ -164,6 +177,22 @@ void oru_walk::initSolver()
 //    smpc::enable_fexceptions();
 }
 
+void oru_walk::initwalkControl()
+{
+    sleep(1.0);
+
+    init();
+
+    initRobot();
+
+    sleep(3.0);
+
+    wp.walkParametersInitialize(); //wp.readparameters
+
+    readSensors (nao.state_sensor);
+
+    initSolver();
+}
 
 
 /**
@@ -172,11 +201,10 @@ void oru_walk::initSolver()
  */
 void oru_walk::walkControl()
 {
-    oruw_timer timer(__FUNCTION__, wp.loop_time_limit_ms);
+    //oruw_timer timer(__FUNCTION__, wp.loop_time_limit_ms);
+    // support foot position and orientation
 
-
-    initSolver();
-
+    initwalkControl();
 
     WMG wmg(wp.preview_window_size,
             wp.preview_sampling_time_ms,
@@ -188,9 +216,7 @@ void oru_walk::walkControl()
     wmg.T_ms[0] = wp.control_sampling_time_ms;
     wmg.T_ms[1] = wp.control_sampling_time_ms;
 
-
     smpc::state_com CoM;
-
 
     try
     {
@@ -204,34 +230,29 @@ void oru_walk::walkControl()
         return;
     }
 
-
     nao.getCoM (nao.state_sensor, nao.CoM_position);
+
     smpc_parameters mpc(wp.preview_window_size, nao.CoM_position[2]);
-    mpc.init_state.set (nao.CoM_position[0], nao.CoM_position[1]);
+    mpc.init_state.set(nao.CoM_position[0], nao.CoM_position[1]);
 
 
     jointState target_joint_state = nao.state_model;
+    dcm_loop_break = false;
     for (;;)
     {
+        //printMessage ("waiting for thread to get unlock");
         boost::unique_lock<boost::mutex> lock(walk_control_mutex);
         walk_control_condition.wait(lock);
         lock.unlock();
-
-
-        timer.reset();
-
-
-        ORUW_LOG_JOINTS(nao.state_sensor, target_joint_state);
-        ORUW_LOG_COM(mpc, nao);
-        ORUW_LOG_FEET(nao);
-
+        //usleep(100000);
+        //readSensors (nao.state_sensor);
 
         try
         {
             feedbackError (mpc.init_state);
-
             if (solveMPCProblem (wmg, mpc))  // solve MPC
             {
+                //printMessage ("MPC problem solved.");
                 if (wmg.isSupportSwitchNeeded())
                 {
                     correctNextSupportPosition(wmg);
@@ -247,25 +268,37 @@ void oru_walk::walkControl()
             }
             else
             {
+                //printMessage ("MPC problem not solved. breaking");
                 break;
             }
 
-            if (!timer.check()) 
-            {
-                halt("Time limit is violated!\n", __FUNCTION__);
-            }
         }
         catch (...)
         {
+            printMessage ("walk main control loop. exception caught.");
             break;
         }
     }
 
-    ORUW_LOG_STEPS(wmg);
-    ORUW_LOG_CLOSE;
+    dcm_loop_break = true;
+
+    //ORUW_LOG_STEPS(wmg);
+    //ORUW_LOG_CLOSE;
 }
 
+void oru_walk::MatrixPrint(unsigned int m, unsigned int n, double * A, const char * description)
+{
+    unsigned int  i, j;
 
+    printf(" %s", description);
+    for (i=0; i<m; i++)
+    {
+        printf("\n");
+        for (j=0; j<n; j++)
+            printf("% f ", A[ j*m + i ]);
+    }
+    printf("\n");
+}
 
 /**
  * @brief Solve inverse kinematics and send commands to the controllers.
@@ -284,7 +317,6 @@ void oru_walk::solveIKsendCommands (
     // hCoM is constant!
     nao.setCoM(CoM.x(), CoM.y(), mpc.hCoM);
 
-
     // support foot and swing foot position/orientation
     wmg.getFeetPositions (
             control_loop_num * wp.control_sampling_time_ms, 
@@ -298,7 +330,7 @@ void oru_walk::solveIKsendCommands (
             wp.igm_mu, 
             wp.igm_tol, 
             wp.igm_max_iter);
-    ORUW_LOG_MESSAGE("IGM iterations num: %d\n", iter_num);
+    //ORUW_LOG_MESSAGE("IGM iterations num: %d\n", iter_num);
     if (iter_num < 0)
     {
         halt("IK does not converge.\n", __FUNCTION__);
@@ -306,28 +338,41 @@ void oru_walk::solveIKsendCommands (
     int failed_joint = nao.state_model.checkJointBounds();
     if (failed_joint >= 0)
     {
-        ORUW_LOG_MESSAGE("Failed joint: %d\n", failed_joint);
+        //ORUW_LOG_MESSAGE("Failed joint: %d\n", failed_joint);
         halt("Joint bounds are violated.\n", __FUNCTION__);
-    }
+    } else {
+        // Set commands
+        try
+        {   robot_interface_->getTorsoFeedback(torso_feedback_);
+            postureController();
 
+            for (int i = 0; i < LOWER_JOINTS_NUM; i++)
+            {
+                joint_commands[i] = nao.state_model.q[i];
+                //ref_joint_angles[i] = nao.state_model.q[i];
+            }
 
-    // Set commands
-    try
-    {
-        joint_commands[4][0] = last_dcm_time_ms + control_loop_num * wp.control_sampling_time_ms;
-        for (int i = 0; i < LOWER_JOINTS_NUM; i++)
-        {
-            joint_commands[5][i][0] = nao.state_model.q[i];
+            robot_interface_->sendPositionsCommand(joint_indices_, joint_commands, JOINTS_NUM);
         }
-        dcm_proxy->setAlias(joint_commands);
-    }
-    catch (const AL::ALError &e)
-    {
-        ORUW_LOG_MESSAGE("Cannot set joint angles: %s", e.what());
-        halt("Cannot set joint angles!", __FUNCTION__);
+        catch (...)
+        {
+            //ORUW_LOG_MESSAGE("Cannot set joint angles: %s", e.what());
+            halt("Cannot set joint angles!", __FUNCTION__);
+        }
     }
 }
 
+void oru_walk::postureController()
+{
+    double kp = 0.1;
+    double kd = -0.05;
+    double delta_pitch = kp*(0.0-torso_feedback_[0]) + kd*(0-torso_feedback_[2]);
+    double delta_roll = kp*(0.0-torso_feedback_[1]) + kd*(0-torso_feedback_[3]);;
+    nao.state_model.q[R_HIP_PITCH] += delta_pitch;
+    nao.state_model.q[L_HIP_PITCH] += delta_pitch;
+    nao.state_model.q[R_HIP_ROLL] += delta_roll;
+    nao.state_model.q[L_HIP_ROLL] += delta_roll;
+}
 
 
 /**
@@ -338,7 +383,6 @@ void oru_walk::solveIKsendCommands (
 void oru_walk::feedbackError (smpc::state_com &init_state)
 {
     nao.getCoM (nao.state_sensor, nao.CoM_position);
-
 
     smpc::state_com state_error;
     state_error.set (
@@ -370,7 +414,7 @@ void oru_walk::feedbackError (smpc::state_com &init_state)
     {
         state_error.y() = 0.0;
     }
-
+    //std::cout << "state_error: [" <<  state_error.x() << "," << state_error.y() << "]" << std::endl;
     init_state.x() -= wp.feedback_gain * state_error.x();
     init_state.y() -= wp.feedback_gain * state_error.y();
 }
@@ -389,11 +433,9 @@ bool oru_walk::solveMPCProblem (
         WMG &wmg,
         smpc_parameters &mpc)
 {
-    oruw_timer timer(__FUNCTION__, wp.loop_time_limit_ms);
-
     if (wmg.formPreviewWindow(mpc) == WMG_HALT)
     {
-        stopWalking("Not enough steps to form preview window. Stopping.");
+        //printMessage("Not enough steps to form preview window. Stopping.");
         return (false);
     }
 
@@ -404,30 +446,21 @@ bool oru_walk::solveMPCProblem (
     solver->get_next_state(mpc.init_state);
     //------------------------------------------------------
 
-
-    ORUW_LOG_SOLVER_INFO;
-    if (!timer.check()) 
-    {
-        halt("Time limit is violated!\n", __FUNCTION__);
-    }
-
     return (true);
 }
 
 
 // ==============================================================================
-
-
 /**
  * @brief Unregister callback and log a message.
  *
  * @param[in] message a message
  */
-void oru_walk::stopWalking(const char* message)
+void oru_walk::printMessage(const char* message)
 {
-    ORUW_LOG_MESSAGE("%s", message);
-    qiLogInfo ("module.oru_walk") << message;
-    dcm_callback_connection.disconnect();
+    //ORUW_LOG_MESSAGE("%s", message);
+    std::cout << message << std::endl;
+    //dcm_callback_connection.disconnect();
 }
 
 
@@ -440,9 +473,9 @@ void oru_walk::stopWalking(const char* message)
  */
 void oru_walk::halt(const char *message, const char* function)
 {
-    stopWalking(message);
+    printMessage(message);
     setStiffness(0.0);
-    throw ALERROR(getName(), function, message);
+    //throw ALERROR(getName(), function, message);
 }
 
 
@@ -453,6 +486,21 @@ void oru_walk::halt(const char *message, const char* function)
  */
 void oru_walk::stopWalkingRemote()
 {
-    stopWalking ("Stopped by user's request.\n");
-    ORUW_LOG_CLOSE;
+    printMessage ("Stopped by user's request.\n");
+    //ORUW_LOG_CLOSE;
 }
+/*
+    /*
+    std::vector<std::string> signal_names;
+    signal_names.resize(3);
+    signal_names[0] = "accel-X";
+    signal_names[1] = "accel-Y";
+    signal_names[2] = "accel-Z";
+    float dummy;
+
+    for (int i=0; i < signal_names.size(); i++) {
+        const char *p = signal_names[i].c_str();
+        simxGetFloatSignal(clientID, p, &dummy, simx_opmode_streaming);
+
+        std::cout << signal_names[i] << ":" << dummy << std::endl;
+    }*/

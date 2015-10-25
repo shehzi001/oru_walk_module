@@ -6,8 +6,8 @@
  */
 
 #include "oru_walk.h"
-#include "oruw_log.h"
-#include "oruw_timer.h"
+//#include "oruw_log.h"
+//#include "oruw_timer.h"
 
 
 /**
@@ -34,6 +34,9 @@ void oru_walk::initWalkPattern(WMG &wmg)
             break;
         case WALK_PATTERN_CIRCULAR:
             initWalkPattern_Circular(wmg);
+            break;
+        case WALK_PATTERN_BACK:
+            initWalkPattern_Back(wmg);
             break;
         default:
             halt("Unknown walk pattern.\n", __FUNCTION__);
@@ -70,6 +73,45 @@ void oru_walk::initWalkPattern_Straight(WMG &wmg)
     {
         wmg.addFootstep(step_x, -step_y, 0.0);
         wmg.addFootstep(step_x,  step_y, 0.0);
+    }
+
+    // here we give many reference points, since otherwise we 
+    // would not have enough steps in preview window to reach 
+    // the last footsteps
+    wmg.setFootstepParametersMS(5*wp.ss_time_ms, 0, 0);
+    wmg.addFootstep(0.0   , -step_y/2, 0.0, FS_TYPE_DS);
+    wmg.setFootstepParametersMS(0, 0, 0);
+    wmg.addFootstep(0.0   , -step_y/2, 0.0, FS_TYPE_SS_R);
+}
+
+/**
+ * @brief Initializes walk pattern
+ */
+void oru_walk::initWalkPattern_Back(WMG &wmg)
+{
+    // each step is defined relatively to the previous step
+    const double step_x = wp.step_length;                        // relative X position
+    const double step_y = wmg.def_constraints.support_distance_y;// relative Y position
+
+
+    wmg.setFootstepParametersMS(0, 0, 0);
+    wmg.addFootstep(0.0, step_y/2, 0.0, FS_TYPE_SS_L);
+
+    // Initial double support
+    wmg.setFootstepParametersMS(3*wp.ss_time_ms, 0, 0);
+    wmg.addFootstep(0.0, -step_y/2, 0.0, FS_TYPE_DS);
+
+
+    // all subsequent steps have normal feet size
+    wmg.setFootstepParametersMS(wp.ss_time_ms, 0, 0);
+    wmg.addFootstep(0.0   , -step_y/2, 0.0);
+    wmg.setFootstepParametersMS(wp.ss_time_ms, wp.ds_time_ms, wp.ds_number);
+    wmg.addFootstep(-step_x,  step_y,   0.0);
+
+    for (int i = 0; i < wp.step_pairs_number; i++)
+    {
+        wmg.addFootstep(-step_x, -step_y, 0.0);
+        wmg.addFootstep(-step_x,  step_y, 0.0);
     }
 
     // here we give many reference points, since otherwise we 

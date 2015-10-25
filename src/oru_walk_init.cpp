@@ -8,126 +8,88 @@
 #include "oru_walk.h"
 
 
+// Initialisation of ALmemory fast access, DCM commands, Alias, stiffness, ...
 /**
- * @brief Initializes variables, that are necessary for fast reading of data from memory.
+ * @brief 
  */
-void oru_walk::initFastRead(const vector<string>& joint_names)
+void oru_walk::init()
 {
-    // Sensors names
-    vector<string> fSensorKeys;
+    joint_names.resize(JOINTS_NUM);
+    joint_names[HEAD_PITCH]       = "HeadPitch";
+    joint_names[HEAD_YAW]         = "HeadYaw";
 
-    fSensorKeys.clear();
-    fSensorKeys.resize(JOINTS_NUM);
+    joint_names[L_ANKLE_PITCH]    = "LAnklePitch3";
+    joint_names[L_ANKLE_ROLL]     = "LAnkleRoll3";
+    joint_names[L_ELBOW_ROLL]     = "LElbowRoll3";
+    joint_names[L_ELBOW_YAW]      = "LElbowYaw3";
+    joint_names[L_HIP_PITCH]      = "LHipPitch3";
+    joint_names[L_HIP_ROLL]       = "LHipRoll3";
+    joint_names[L_HIP_YAW_PITCH]  = "LHipYawPitch3";
+    joint_names[L_KNEE_PITCH]     = "LKneePitch3";
+    joint_names[L_SHOULDER_PITCH] = "LShoulderPitch3";
+    joint_names[L_SHOULDER_ROLL]  = "LShoulderRoll3";
+    joint_names[L_WRIST_YAW]      = "LWristYaw3";
 
+    joint_names[R_ANKLE_PITCH]    = "RAnklePitch3";
+    joint_names[R_ANKLE_ROLL]     = "RAnkleRoll3";
+    joint_names[R_ELBOW_ROLL]     = "RElbowRoll3";
+    joint_names[R_ELBOW_YAW]      = "RElbowYaw3";
+    joint_names[R_HIP_PITCH]      = "RHipPitch3";
+    joint_names[R_HIP_ROLL]       = "RHipRoll3";
+    joint_names[R_HIP_YAW_PITCH]  = "RHipYawPitch3";
+    joint_names[R_KNEE_PITCH]     = "RKneePitch3";
+    joint_names[R_SHOULDER_PITCH] = "RShoulderPitch3";
+    joint_names[R_SHOULDER_ROLL]  = "RShoulderRoll3";
+    joint_names[R_WRIST_YAW]      = "RWristYaw3";
 
-    // connect to sensors
-    for (int i = 0; i < JOINTS_NUM; i++)
-    {
-        fSensorKeys[i] = joint_names[i] + "/Position/Sensor/Value";
+    for (int i=0; i< JOINTS_NUM; i++) {
+        joint_indices_[i] = i;
     }
-    // Create the fast memory access
-    access_sensor_values->ConnectToVariables(getParentBroker(), fSensorKeys, false);
 
+    initJointAngles();
 
-    last_dcm_time_ms_ptr = (int *) memory_proxy->getDataPtr("DCM/Time");
+    initWalkCommands();
+
+    std::cout << "module.oru_walk: Execution of init() is finished." << std::endl;
 }
 
 
-
-/**
- * @brief Initializes variables, that are necessary for fast sending of parameters to DCM.
- */
-void oru_walk::initFastWrite(const vector<string>& joint_names)
+void oru_walk::initJointAngles()
 {
-    ALValue jointAliases;
+    init_joint_angles.resize(JOINTS_NUM);
 
-    jointAliases.arraySetSize(2);
-    jointAliases[1].arraySetSize(JOINTS_NUM);
+    init_joint_angles[L_HIP_YAW_PITCH]  =  0.0;
+    // note, that R_HIP_YAW_PITCH is controlled by the same motor as L_HIP_YAW_PITCH 
+    init_joint_angles[R_HIP_YAW_PITCH]  =  0.0;
 
+    init_joint_angles[L_HIP_ROLL]       = -0.000384;
+    init_joint_angles[L_HIP_PITCH]      = -0.598291/4;//−0.14957275
+    init_joint_angles[L_KNEE_PITCH]     =  1.009413/1.25;//0.8075304
+    init_joint_angles[L_ANKLE_PITCH]    = -0.492352;
+    init_joint_angles[L_ANKLE_ROLL]     =  0.000469;
 
-    // positions of actuators.
-    jointAliases[0] = std::string("jointActuator"); // Alias for all joint actuators
-    // Create alias 
-    try
-    {
-        for (int i = 0; i < JOINTS_NUM; i++)
-        {
-            jointAliases[1][i] = joint_names[i] + "/Position/Actuator/Value";
-        }
-        dcm_proxy->createAlias(jointAliases);
-    }
-    catch (const ALError &e)
-    {
-        ORUW_THROW_ERROR("Error when creating Alias: ", e);
-    }
+    init_joint_angles[R_HIP_ROLL]       = -0.000384;
+    init_joint_angles[R_HIP_PITCH]      = -0.598219/4;
+    init_joint_angles[R_KNEE_PITCH]     =  1.009237/1.25;
+    init_joint_angles[R_ANKLE_PITCH]    = -0.492248;
+    init_joint_angles[R_ANKLE_ROLL]     =  0.000469;
 
+    init_joint_angles[L_SHOULDER_PITCH] =  1.418908;
+    init_joint_angles[L_SHOULDER_ROLL]  =  0.332836;
+    init_joint_angles[L_ELBOW_YAW]      = -1.379108;
+    init_joint_angles[L_ELBOW_ROLL]     = -1.021602;
+    init_joint_angles[L_WRIST_YAW]      = -0.013848;
 
-    //  stiffness of actuators.
-    jointAliases[0] = std::string("jointStiffness"); // Alias for all actuators
-    // Create alias
-    try
-    {
-        for (int i = 0; i < JOINTS_NUM; i++)
-        {
-            jointAliases[1][i] = joint_names[i] + "/Hardness/Actuator/Value";
-        }
-        dcm_proxy->createAlias(jointAliases);
-    }
-    catch (const ALError &e)
-    {
-        ORUW_THROW_ERROR("Error when creating Alias: ", e);
-    }
+    init_joint_angles[R_SHOULDER_PITCH] =  1.425128;
+    init_joint_angles[R_SHOULDER_ROLL]  = -0.331386;
+    init_joint_angles[R_ELBOW_YAW]      =  1.383626;
+    init_joint_angles[R_ELBOW_ROLL]     =  1.029356;
+    init_joint_angles[R_WRIST_YAW]      = -0.01078; 
 
-
-
-    // access to the actuators in the lower body only
-    jointAliases[1].clear();
-    jointAliases[1].arraySetSize(LOWER_JOINTS_NUM);
-
-    // positions of actuators.
-    jointAliases[0] = std::string("lowerJointActuator"); // Alias for all joint actuators
-    // Create alias
-    try
-    {
-        for (int i = 0; i < LOWER_JOINTS_NUM; i++)
-        {
-            jointAliases[1][i] = joint_names[i] + "/Position/Actuator/Value";
-        }
-        dcm_proxy->createAlias(jointAliases);
-    }
-    catch (const ALError &e)
-    {
-        ORUW_THROW_ERROR("Error when creating Alias: ", e);
-    }
-}
-
-
-
-/**
- * @brief Initialize commands, that will be sent to DCM.
- */
-void oru_walk::initWalkCommands()
-{
-    // create the structure of the commands
-    joint_commands.arraySetSize(6);
-    joint_commands[0] = string("lowerJointActuator");
-    joint_commands[1] = string("ClearAll");
-    joint_commands[2] = string("time-separate");
-    joint_commands[3] = 0;
-
-    joint_commands[4].arraySetSize(1);
-
-    joint_commands[5].arraySetSize(LOWER_JOINTS_NUM); // For all joints
-    for (int i=0; i < LOWER_JOINTS_NUM; i++)
-    {
-        joint_commands[5][i].arraySetSize(1);
-    }
-}
-
-
-void oru_walk::initJointAngles(ALValue &init_joint_angles)
-{
-    init_joint_angles[L_HIP_YAW_PITCH][0]  =  0.0;
+    init_joint_angles[HEAD_PITCH]       =  0.0;     
+    init_joint_angles[HEAD_YAW]         =  0.0;
+    /*
+        init_joint_angles[L_HIP_YAW_PITCH][0]  =  0.0;
     // note, that R_HIP_YAW_PITCH is controlled by the same motor as L_HIP_YAW_PITCH 
     init_joint_angles[R_HIP_YAW_PITCH][0]  =  0.0;
 
@@ -157,4 +119,30 @@ void oru_walk::initJointAngles(ALValue &init_joint_angles)
 
     init_joint_angles[HEAD_PITCH][0]       =  0.0;     
     init_joint_angles[HEAD_YAW][0]         =  0.0;
+    */
+}
+
+/**
+ * @brief Initialize commands, that will be sent to DCM.
+ */
+
+void oru_walk::initWalkCommands()
+{
+    joint_commands.resize(JOINTS_NUM);
+    joint_commands = init_joint_angles;
+
+    for (int i = 0; i < LOWER_JOINTS_NUM; i++)
+    {
+        ref_joint_angles[i] = joint_commands[i];
+    }
+}
+
+
+/**
+ * @brief Set stiffness of joints.
+ *
+ * @param[in] stiffnessValue value of stiffness [0;1]
+ */
+void oru_walk::setStiffness(const float &stiffnessValue)
+{
 }
